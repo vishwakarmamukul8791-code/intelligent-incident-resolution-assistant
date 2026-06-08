@@ -1,7 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter,UploadFile,File
 
 router = APIRouter()
 
-@router.get("/upload")
-def upload_info():
-    return {"message": "Upload endpoint working"}
+@router.post("/upload")
+def upload_file(file: UploadFile = File(...)):
+
+    return {"message": "File upload successfully",
+            "filename": file.filename
+            }
