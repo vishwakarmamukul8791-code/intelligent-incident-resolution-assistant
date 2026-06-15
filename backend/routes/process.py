@@ -1,37 +1,34 @@
-# from fastapi import APIRouter
-
-# router = APIRouter()
-# @router.get("/process-document")
-# def process_document():
-#     return {
-#         "message" : "process document endpoint working"
-
-#     }
-
-# @router.get(
-#     "/process-document",
-#     summary="Read and Process Uploaded Document"
-# )
-# def process_document():
-#      return {
-#          "message" : "process document endpoint working"
-
-#      }
-
 from fastapi import APIRouter, HTTPException
 from backend.services.embedding_service import generate_embeddings
+from backend.services.vector_store import (
+    save_metadata,
+    load_metadata
+)
+from backend.services.faiss_service import (
+    add_embeddings_to_index
+)
+from backend.services.hash_service import (
+    generate_file_hash
+)
+from backend.services.document_registry import (
+    load_registry,
+    save_registry
+)
+
 import os
+import uuid
 
 router = APIRouter()
+
+
 def create_chunks(text, chunk_size=100):
-    
+
     chunks = []
 
     for i in range(0, len(text), chunk_size):
-        chunks.append(text[i:i+chunk_size])
+        chunks.append(text[i:i + chunk_size])
 
     return chunks
-
 
 
 @router.post("/process-document")
@@ -45,18 +42,80 @@ def process_document(filename: str):
             detail="File not found"
         )
 
-    with open(file_path, "r", encoding="utf-8") as file:
+    # Duplicate check using hash
+    file_hash = generate_file_hash(
+        file_path
+    )
+
+    registry = load_registry()
+
+    for document in registry:
+
+        if document["hash"] == file_hash:
+
+            return {
+                "message": "Document already exists",
+                "filename": filename
+            }
+
+    # Read file
+    with open(
+        file_path,
+        "r",
+        encoding="utf-8"
+    ) as file:
+
         content = file.read()
 
-    # return {
-    #     "filename": filename,
-    #     "content": content
-    # }
+    # Chunking
     chunks = create_chunks(content)
-    embeddings = generate_embeddings(chunks)
+
+    if not chunks:
+        raise HTTPException(
+            status_code=400,
+            detail="No content found in file"
+        )
+
+    # Load existing metadata
+    existing_metadata = load_metadata()
+
+    # Save chunk metadata
+    for chunk in chunks:
+
+        existing_metadata.append({
+            "chunk_id": str(uuid.uuid4()),
+            "document_name": filename,
+            "chunk": chunk
+        })
+
+    save_metadata(
+        existing_metadata
+    )
+
+    # Generate embeddings
+    embeddings = generate_embeddings(
+        chunks
+    )
+
+    # Save vectors to FAISS
+    index = add_embeddings_to_index(
+        embeddings
+    )
+
+    # Save hash to registry
+    registry.append({
+        "document_name": filename,
+        "hash": file_hash
+    })
+
+    save_registry(
+        registry
+    )
 
     return {
-    "filename": filename,
-    "total_chunks": len(chunks),
-    "embedding_dimension": len(embeddings[0])
-}
+        "filename": filename,
+        "total_chunks": len(chunks),
+        "embedding_dimension": len(embeddings[0]),
+        "metadata_records": len(existing_metadata),
+        "total_vectors": index.ntotal
+    }

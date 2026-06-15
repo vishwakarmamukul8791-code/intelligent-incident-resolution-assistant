@@ -1,0 +1,18 @@
+from fastapi import APIRouter
+
+from backend.services.document_registry import (
+    load_registry
+)
+
+router = APIRouter()
+
+
+@router.get("/documents")
+def get_documents():
+
+    registry = load_registry()
+
+    return {
+        "total_documents": len(registry),
+        "documents": registry
+    }
